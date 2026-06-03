@@ -6,755 +6,217 @@ import matplotlib.pyplot as plt
 x = sp.symbols("x")
 
 st.set_page_config(
-    page_title="절댓값을 포함한 일차부등식 탐구",
+    page_title="절댓값 두 개 포함 일차부등식",
     page_icon="📘",
-    layout="wide"
+    layout="wide",
 )
 
-st.title("📘 절댓값을 포함한 일차부등식 탐구")
-
+st.title("📘 절댓값 두 개 포함 일차부등식 탐구")
 st.markdown(
     """
-### 🎯 학습목표
-**절댓값을 포함한 일차부등식을 풀 수 있다!**
+이 앱은 고등학교 1학년 수학 수업에서 사용할 수 있는, **절댓값 두 개를 포함한 일차부등식** 학습 도구입니다.
+
+- 왼쪽과 오른쪽 절댓값 식을 버튼과 선택 상자로 쉽게 만들 수 있습니다.
+- 부등식의 해를 자동으로 계산하고, 그래프와 수직선으로 결과를 보여줍니다.
 """
 )
 
-st.divider()
+if "a1" not in st.session_state:
+    st.session_state.update(
+        {
+            "a1": 1,
+            "b1": 1,
+            "a2": 2,
+            "b2": -4,
+            "op": "+",
+            "ineq": "<=",
+            "rhs": 5,
+        }
+    )
 
 
-def parse_expr_safe(expr_text: str) -> sp.Expr:
-    expr_text = expr_text.strip()
-    if expr_text == "":
-        raise ValueError("빈 입력")
-    return sp.sympify(expr_text)
+def format_linear(a: int, b: int) -> str:
+    if a == 0:
+        return f"{b}"
+
+    coeff = "" if abs(a) == 1 else str(abs(a))
+    sign = "-" if a < 0 else ""
+    term = f"{sign}{coeff}x"
+
+    if b == 0:
+        return term
+
+    sign_b = "+" if b > 0 else "-"
+    return f"{term} {sign_b} {abs(b)}"
 
 
-def is_linear(expr: sp.Expr) -> bool:
-    expr = sp.expand(expr)
-    poly = sp.Poly(expr, x)
-    return poly.degree() <= 1
+def format_abs(a: int, b: int) -> str:
+    return f"|{format_linear(a, b)}|"
 
 
-def validate_linear(expr_text: str) -> sp.Expr:
-    expr = parse_expr_safe(expr_text)
-    if not is_linear(expr):
-        raise ValueError("절댓값 내부에는 일차식만 입력 가능합니다.")
-    return expr
+def build_expression(a: int, b: int) -> sp.Expr:
+    return a * x + b
 
 
-def interval_label(left, right):
-    if left is sp.S.NegativeInfinity:
-        return f"x < {sp.latex(right)}"
-    if right is sp.S.Infinity:
-        return f"x \\ge {sp.latex(left)}"
-    return f"{sp.latex(left)} \\le x < {sp.latex(right)}"
-
-
-def pick_test_point(left, right):
-    if left is sp.S.NegativeInfinity and right is not sp.S.Infinity:
-        return float(right) - 1.0
-    if right is sp.S.Infinity and left is not sp.S.NegativeInfinity:
-        return float(left) + 1.0
-    if left is sp.S.NegativeInfinity and right is sp.S.Infinity:
-        return 0.0
-    return (float(left) + float(right)) / 2.0
-
-
-def to_interval(expr):
-    if expr.is_Interval:
-        return [expr]
-    if expr.is_Union:
-        return [arg for arg in expr.args if arg.is_Interval]
+def solution_intervals(solution):
+    if solution == sp.S.EmptySet:
+        return []
+    if solution == sp.S.Reals:
+        return [sp.Interval(-sp.oo, sp.oo)]
+    if solution.is_Interval:
+        return [solution]
+    if solution.is_Union:
+        return [arg for arg in solution.args if arg.is_Interval]
     return []
 
 
-def plot_number_line(solution, x_min, x_max):
-    fig, ax = plt.subplots(figsize=(8, 1.5))
-    ax.axhline(0, color="black", linewidth=1)
+def plot_solution_line(solution, x_min, x_max):
+    fig, ax = plt.subplots(figsize=(10, 1.5))
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(-1, 1)
+    ax.axhline(0, color="black", linewidth=1)
     ax.get_yaxis().set_visible(False)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_visible(False)
     ax.spines["bottom"].set_position("center")
 
-    ticks = np.linspace(x_min, x_max, 9)
-    ax.set_xticks(ticks)
-    ax.set_xticklabels([f"{t:.1f}" for t in ticks])
-    ax.tick_params(axis="x", which="both", length=6)
+    ax.set_xticks(np.linspace(x_min, x_max, 9))
+    ax.set_xticklabels([f"{t:.1f}" for t in np.linspace(x_min, x_max, 9)])
+    ax.tick_params(axis="x", length=6)
 
-    intervals = to_interval(solution)
+    intervals = solution_intervals(solution)
+    if solution == sp.S.Reals:
+        ax.plot([x_min, x_max], [0, 0], color="red", linewidth=8)
+        return fig
+
+    if not intervals:
+        return fig
+
     for interval in intervals:
-        start = -1e6 if interval.start is sp.S.NegativeInfinity else float(interval.start)
-        end = 1e6 if interval.end is sp.S.Infinity else float(interval.end)
+        start = float(interval.start) if interval.start is not sp.S.NegativeInfinity else x_min
+        end = float(interval.end) if interval.end is not sp.S.Infinity else x_max
         start = max(start, x_min)
         end = min(end, x_max)
-        if start >= end:
-            continue
-        ax.plot([start, end], [0, 0], color="red", linewidth=6)
-        if interval.left_open:
-            ax.plot(start, 0, marker="o", color="white", markeredgecolor="red", markersize=8)
-        else:
-            ax.plot(start, 0, marker="o", color="red", markersize=8)
-        if interval.right_open:
-            ax.plot(end, 0, marker="o", color="white", markeredgecolor="red", markersize=8)
-        else:
-            ax.plot(end, 0, marker="o", color="red", markersize=8)
+        ax.plot([start, end], [0, 0], color="red", linewidth=8)
+        left_marker = "white" if interval.left_open else "red"
+        right_marker = "white" if interval.right_open else "red"
+        ax.plot(start, 0, marker="o", color=left_marker, markeredgecolor="red", markersize=10)
+        ax.plot(end, 0, marker="o", color=right_marker, markeredgecolor="red", markersize=10)
 
     return fig
 
 
-st.subheader("📝 부등식 입력")
-col1, col2, col3, col4, col5 = st.columns([3, 1, 3, 2, 3])
+st.subheader("1️⃣ 예제와 수식 선택")
+with st.expander("빠른 예제 선택", expanded=True):
+    c1, c2, c3 = st.columns(3)
+    if c1.button("예제 1: |x+1| + |2x-4| <= 5"):
+        st.session_state.update({"a1": 1, "b1": 1, "a2": 2, "b2": -4, "op": "+", "ineq": "<=", "rhs": 5})
+    if c2.button("예제 2: |2x-3| - |x-2| >= 1"):
+        st.session_state.update({"a1": 2, "b1": -3, "a2": 1, "b2": -2, "op": "-", "ineq": ">=", "rhs": 1})
+    if c3.button("예제 3: |-x+2| + |x-5| > 4"):
+        st.session_state.update({"a1": -1, "b1": 2, "a2": 1, "b2": -5, "op": "+", "ineq": ">", "rhs": 4})
 
+st.markdown(
+    "수식을 버튼과 선택 상자로 만들 수 있어요. 절댓값 내부의 계수와 상수를 선택한 뒤, 부등호와 우변 값을 정하세요."
+)
+
+st.subheader("2️⃣ 절댓값 부등식 만들기")
+col1, col2, col3, col4 = st.columns(4)
 with col1:
-    abs1_text = st.text_input("첫 번째 절댓값 내부", value="x+1")
+    a1 = st.selectbox("첫 번째 절댓값 계수 a₁", [-3, -2, -1, 1, 2, 3], index=[-3, -2, -1, 1, 2, 3].index(st.session_state["a1"]))
+    b1 = st.slider("첫 번째 절댓값 상수 b₁", -10, 10, st.session_state["b1"], key="b1")
 with col2:
-    plus_minus = st.selectbox("연산", ["+", "-"])
+    a2 = st.selectbox("두 번째 절댓값 계수 a₂", [-3, -2, -1, 1, 2, 3], index=[-3, -2, -1, 1, 2, 3].index(st.session_state["a2"]))
+    b2 = st.slider("두 번째 절댓값 상수 b₂", -10, 10, st.session_state["b2"], key="b2")
 with col3:
-    abs2_text = st.text_input("두 번째 절댓값 내부", value="2*x-4")
+    op = st.selectbox("연산자", ["+", "-"], index=["+", "-"].index(st.session_state["op"]))
+    ineq = st.selectbox("부등호", ["<", "<=", ">", ">="], index=["<", "<=", ">", ">="].index(st.session_state["ineq"]))
 with col4:
-    inequality = st.selectbox("부등호", [">", ">=", "<", "<="]) 
-with col5:
-    rhs_text = st.text_input("우변", value="5")
-
-st.caption("곱셈 기호를 포함하여 작성해주세요! 예시: 2x는 '2*x' 로 입력합니다.")
-st.divider()
-
-if st.button("🚀 풀이 시작", use_container_width=True):
-    try:
-        abs1 = validate_linear(abs1_text)
-        abs2 = validate_linear(abs2_text)
-        rhs = parse_expr_safe(rhs_text)
-    except Exception as e:
-        st.error(f"입력 오류: {e}")
-        st.stop()
-
-    st.success("입력 확인 완료")
-
-    roots = []
-    try:
-        r1 = sp.solve(sp.Eq(abs1, 0), x)
-        r2 = sp.solve(sp.Eq(abs2, 0), x)
-        for r in r1 + r2:
-            if r.is_real:
-                roots.append(sp.simplify(r))
-    except Exception as e:
-        st.error(f"근 계산 오류: {e}")
-        st.stop()
-
-    roots = sorted(list(set(roots)), key=lambda v: float(v))
-
-    st.subheader("📌 절댓값이 0이 되는 값")
-    if len(roots) == 0:
-        st.write("절댓값 내부가 0이 되는 실수가 없습니다.")
-        st.stop()
-
-    for r in roots:
-        st.latex(f"x = {sp.latex(r)}")
-
-    st.divider()
-
-    intervals = []
-    if len(roots) == 1:
-        a = roots[0]
-        intervals = [
-            (interval_label(sp.S.NegativeInfinity, a), sp.S.NegativeInfinity, a),
-            (interval_label(a, sp.S.Infinity), a, sp.S.Infinity),
-        ]
-    elif len(roots) == 2:
-        a, b = roots
-        intervals = [
-            (interval_label(sp.S.NegativeInfinity, a), sp.S.NegativeInfinity, a),
-            (interval_label(a, b), a, b),
-            (interval_label(b, sp.S.Infinity), b, sp.S.Infinity),
-        ]
-    else:
-        st.error("절댓값 0이 되는 값이 2개 이하여야 합니다.")
-        st.stop()
-
-    lhs_original = sp.Abs(abs1) + sp.Abs(abs2) if plus_minus == "+" else sp.Abs(abs1) - sp.Abs(abs2)
-
-    st.subheader("📖 구간별 풀이")
-    solution_parts = []
-    graph_segments = []
-
-    for idx, (label, left, right) in enumerate(intervals, start=1):
-        st.markdown(f"#### {idx}. 구간: {label}")
-        test_point = pick_test_point(left, right)
-
-        sign1 = 1 if abs1.subs(x, test_point) >= 0 else -1
-        sign2 = 1 if abs2.subs(x, test_point) >= 0 else -1
-        expr1 = abs1 if sign1 == 1 else -abs1
-        expr2 = abs2 if sign2 == 1 else -abs2
-        linear_expr = expr1 + expr2 if plus_minus == "+" else expr1 - expr2
-        linear_expr = sp.simplify(linear_expr)
-
-        sign_desc1 = "+" if sign1 == 1 else "-"
-        sign_desc2 = "+" if sign2 == 1 else "-"
-        expr1_str = f"{sign_desc1}{sp.latex(abs1)}" if sign1 == -1 else sp.latex(abs1)
-        expr2_str = f"{sign_desc2}{sp.latex(abs2)}" if sign2 == -1 else sp.latex(abs2)
-        if plus_minus == "+":
-            piece_str = f"{expr1_str} + {expr2_str}"
-        else:
-            piece_str = f"{expr1_str} - {expr2_str}"
-
-        st.markdown("- 선형식:")
-        st.latex(sp.latex(linear_expr))
-
-        interval_relation = sp.And(x >= left, x < right) if right is not sp.S.Infinity and left is not sp.S.NegativeInfinity else (
-            (x < right) if left is sp.S.NegativeInfinity else (x >= left)
-        )
-        inequality_expr = None
-        if inequality == ">":
-            inequality_expr = linear_expr > rhs
-        elif inequality == ">=":
-            inequality_expr = linear_expr >= rhs
-        elif inequality == "<":
-            inequality_expr = linear_expr < rhs
-        else:
-            inequality_expr = linear_expr <= rhs
-
-        st.markdown("- 구간에서의 부등식:")
-        st.latex(f"{sp.latex(linear_expr)} {inequality} {sp.latex(rhs)}")
-
-        try:
-            sol = sp.solve_univariate_inequality(inequality_expr, x)
-        except Exception as e:
-            st.error(f"구간 부등식 풀이 오류: {e}")
-            continue
-
-        if left is not sp.S.NegativeInfinity or right is not sp.S.Infinity:
-            if left is sp.S.NegativeInfinity:
-                domain_interval = sp.Interval.open(-sp.oo, right) if right is not sp.S.Infinity else sp.Interval(-sp.oo, sp.oo)
-            elif right is sp.S.Infinity:
-                domain_interval = sp.Interval(left, sp.oo)
-            else:
-                domain_interval = sp.Interval(left, right, left_open=False, right_open=True)
-            sol = sol.intersect(domain_interval)
-
-        graph_segments.append((left, right, linear_expr))
-        solution_parts.append(sol)
-
-        st.markdown("- 이 구간의 해:")
-        if sol is sp.EmptySet:
-            st.write("해가 없습니다.")
-        else:
-            st.latex(sp.latex(sol))
-
-        st.divider()
-
-    if not solution_parts:
-        st.warning("해를 구할 수 없습니다.")
-        st.stop()
-
-    total_solution = solution_parts[0]
-    for part in solution_parts[1:]:
-        total_solution = total_solution.union(part)
-
-    st.subheader("✅ 최종 해")
-    if total_solution is sp.EmptySet:
-        st.write("해가 존재하지 않습니다.")
-    else:
-        st.latex(sp.latex(total_solution))
-
-    all_x = []
-    for left, right, _ in graph_segments:
-        if left is not sp.S.NegativeInfinity:
-            all_x.append(float(left))
-        if right is not sp.S.Infinity:
-            all_x.append(float(right))
-    if all_x:
-        x_min = min(all_x) - 3
-        x_max = max(all_x) + 3
-    else:
-        x_min, x_max = -10, 10
-    x_min, x_max = float(x_min), float(x_max)
-    xs = np.linspace(x_min, x_max, 800)
-
-    lhs_func = sp.lambdify(x, lhs_original, "numpy")
-    rhs_func = sp.lambdify(x, rhs, "numpy")
-    lhs_values = lhs_func(xs)
-    rhs_values = rhs_func(xs)
-
-    st.subheader("📈 구간별 그래프")
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(xs, rhs_values, label=f"우변: {sp.latex(rhs)}", color="black", linestyle="--")
-
-    colors = ["tab:blue", "tab:orange", "tab:green"]
-    for idx, (left, right, linear_expr) in enumerate(graph_segments):
-        mask = np.ones_like(xs, dtype=bool)
-        if left is not sp.S.NegativeInfinity:
-            mask &= xs >= float(left)
-        if right is not sp.S.Infinity:
-            mask &= xs < float(right)
-        if not np.any(mask):
-            continue
-        segment_y = sp.lambdify(x, linear_expr, "numpy")(xs[mask])
-        ax.plot(xs[mask], segment_y, color=colors[idx % len(colors)], label=f"구간 {idx+1}: {sp.latex(linear_expr)}")
-        if left is not sp.S.NegativeInfinity:
-            ax.axvline(float(left), color=colors[idx % len(colors)], linewidth=0.8, linestyle=":")
-        if right is not sp.S.Infinity:
-            ax.axvline(float(right), color=colors[idx % len(colors)], linewidth=0.8, linestyle=":")
-
-    ax.set_xlabel("x")
-    ax.set_ylabel("좌변 값")
-    ax.legend(loc="upper left", fontsize="small")
-    ax.grid(True, linestyle="--", alpha=0.4)
-    st.pyplot(fig)
-
-    st.subheader("🧭 수직선으로 표현된 최종 해")
-    solution_fig = plot_number_line(total_solution, x_min, x_max)
-    st.pyplot(solution_fig)
-
-    if plus_minus == "+":
-        lhs_original = Abs(abs1) + Abs(abs2)
-    else:
-        lhs_original = Abs(abs1) - Abs(abs2)
-
-    st.subheader("📖 구간별 풀이")
-
-    solution_parts = []
-
-    graph_data = []
-for idx, (label, left, right) in enumerate(intervals, start=1):
-
-    section_labels = ["①", "②", "③"]
-
-    if idx <= 3:
-        st.markdown(f"### {section_labels[idx-1]}")
-    else:
-        st.markdown(f"### {idx}")
-
-    st.latex(label)
-
-    # ----------------------------
-    # 테스트점 선택
-    # ----------------------------
-
-    if left is S.NegativeInfinity:
-
-        test_x = float(right) - 1
-
-    elif right is S.Infinity:
-
-        test_x = float(left) + 1
-
-    else:
-
-        test_x = (float(left) + float(right)) / 2
-        expanded_expr = simplify(expanded_expr)
-
-        st.latex(
-            sp.latex(expanded_expr)
-            + inequality
-            + sp.latex(rhs)
-        )
-
-        # 이후 3/4에서 실제 부등식 풀이 진행
-        graph_data.append(
-            (
-                label,
-                expanded_expr
-            )
-        )
-
-        # ----------------------------
-        # 구간 조건
-        # ----------------------------
-
-        if left is S.NegativeInfinity:
-
-            interval_condition = (x < right)
-
-        elif right is S.Infinity:
-
-            interval_condition = (x >= left)
-
-        else:
-
-            interval_condition = sp.And(
-                x >= left,
-                x < right
-            )
-
-        # ----------------------------
-        # 부등식 생성
-        # ----------------------------
-
-        if inequality == ">":
-
-            inequality_expr = (
-                expanded_expr > rhs
-            )
-
-        elif inequality == ">=":
-
-            inequality_expr = (
-                expanded_expr >= rhs
-            )
-
-        elif inequality == "<":
-
-            inequality_expr = (
-                expanded_expr < rhs
-            )
-
-        else:
-
-            inequality_expr = (
-                expanded_expr <= rhs
-            )
-
-        # ----------------------------
-        # 부등식 풀이
-        # ----------------------------
-
-        try:
-
-            inequality_solution = (
-                solveset(
-                    inequality_expr,
-                    x,
-                    domain=S.Reals
-                )
-            )
-
-        except Exception as e:
-
-            st.error(
-                f"부등식 풀이 오류: {e}"
-            )
-
-            continue
-
-        # ----------------------------
-        # 구간과 교집합
-        # ----------------------------
-
-        if left is S.NegativeInfinity:
-
-            current_interval = Interval.open(
-                -sp.oo,
-                right
-            )
-
-        elif right is S.Infinity:
-
-            current_interval = Interval(
-                left,
-                sp.oo
-            )
-
-        else:
-
-            current_interval = Interval(
-                left,
-                right,
-                left_open=False,
-                right_open=True
-            )
-
-        try:
-
-            final_piece = (
-                inequality_solution.intersect(
-                    current_interval
-                )
-            )
-
-        except Exception:
-
-            final_piece = inequality_solution
-
-        solution_parts.append(final_piece)
-
-        # ----------------------------
-        # 결과 표시
-        # ----------------------------
-
-        st.markdown("**구간에서 얻은 해**")
-
-        st.latex(
-            sp.latex(final_piece)
-        )
-
-        st.divider()
-
-    # --------------------------------------------------
-    # 최종 해
-    # --------------------------------------------------
-
-    st.subheader("✅ 최종 해")
-
-    if len(solution_parts) == 0:
-
-        st.write("해가 존재하지 않습니다.")
-
-        st.stop()
-
-    total_solution = solution_parts[0]
-
-    for s in solution_parts[1:]:
-
-        try:
-            total_solution = (
-                total_solution.union(s)
-            )
-
-        except Exception:
-            pass
-
-    st.latex(
-        sp.latex(total_solution)
-    )
-
-    # --------------------------------------------------
-    # 그래프용 함수
-    # --------------------------------------------------
-
-    if plus_minus == "+":
-
-        lhs_function = (
-            Abs(abs1)
-            + Abs(abs2)
-        )
-
-    else:
-
-        lhs_function = (
-            Abs(abs1)
-            - Abs(abs2)
-        )
-
-    rhs_function = rhs
-
-    st.subheader("📈 함수 그래프")
-
-    graph_points = roots.copy()
-
-    if len(graph_points) == 1:
-
-        xmin = float(graph_points[0]) - 5
-        xmax = float(graph_points[0]) + 5
-
-    else:
-
-        xmin = float(min(graph_points)) - 5
-        xmax = float(max(graph_points)) + 5
-
-    xs = np.linspace(
-        xmin,
-        xmax,
-        1000
-    )
-
-    lhs_func = sp.lambdify(
-        x,
-        lhs_function,
-        "numpy"
-    )
-
-    rhs_func = sp.lambdify(
-        x,
-        rhs_function,
-        "numpy"
-    )
-
-    lhs_y = lhs_func(xs)
-    rhs_y = rhs_func(xs)
-
-    # 4/4에서 그래프 출력
-
-        # --------------------------------------------------
-    # 함수 그래프 출력
-    # --------------------------------------------------
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    ax.plot(
-        xs,
-        lhs_y,
-        linewidth=2,
-        label="좌변"
-    )
-
-    ax.plot(
-        xs,
-        rhs_y,
-        linewidth=2,
-        linestyle="--",
-        label="우변"
-    )
-
-    # 절댓값이 0이 되는 점 표시
-    for r in roots:
-
-        ax.axvline(
-            float(r),
-            linestyle=":",
-            alpha=0.7
-        )
-
-        ax.text(
-            float(r),
-            ax.get_ylim()[0],
-            f"x={sp.latex(r)}",
-            fontsize=9
-        )
-
-    ax.set_title("좌변과 우변의 그래프")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.grid(True)
-    ax.legend()
-
-    st.pyplot(fig)
-
-    st.divider()
-
-    # --------------------------------------------------
-    # 수직선 그래프
-    # --------------------------------------------------
-
-    st.subheader("📍 해의 수직선 표현")
-
-    fig2, ax2 = plt.subplots(
-        figsize=(10, 2)
-    )
-
-    ax2.axhline(
-        y=0,
-        linewidth=2
-    )
-
-    ax2.set_yticks([])
-
-    ax2.set_xlim(
-        xmin,
-        xmax
-    )
-
-    # ----------------------------------------------
-    # 해집합 표시
-    # ----------------------------------------------
-
-    try:
-
-        if isinstance(
-            total_solution,
-            Interval
-        ):
-
-            intervals_to_draw = [
-                total_solution
-            ]
-
-        else:
-
-            intervals_to_draw = list(
-                total_solution.args
-            )
-
-    except Exception:
-
-        intervals_to_draw = []
-
-    for item in intervals_to_draw:
-
-        if not isinstance(
-            item,
-            Interval
-        ):
-            continue
-
-        left = (
-            xmin
-            if item.start is -sp.oo
-            else float(item.start)
-        )
-
-        right = (
-            xmax
-            if item.end is sp.oo
-            else float(item.end)
-        )
-
-        ax2.plot(
-            [left, right],
-            [0, 0],
-            linewidth=8
-        )
-
-        # 왼쪽 끝점
-
-        if item.start is not -sp.oo:
-
-            if item.left_open:
-
-                ax2.plot(
-                    left,
-                    0,
-                    marker="o",
-                    markersize=10,
-                    fillstyle="none"
-                )
-
-            else:
-
-                ax2.plot(
-                    left,
-                    0,
-                    marker="o",
-                    markersize=10
-                )
-
-        # 오른쪽 끝점
-
-        if item.end is not sp.oo:
-
-            if item.right_open:
-
-                ax2.plot(
-                    right,
-                    0,
-                    marker="o",
-                    markersize=10,
-                    fillstyle="none"
-                )
-
-            else:
-
-                ax2.plot(
-                    right,
-                    0,
-                    marker="o",
-                    markersize=10
-                )
-
-    ax2.set_title("해의 수직선 그래프")
-
-    st.pyplot(fig2)
-
-    st.divider()
-
-    # --------------------------------------------------
-    # 정리
-    # --------------------------------------------------
-
-    st.success(
-        "풀이가 완료되었습니다!"
-    )
-
-    st.info(
-        """
-절댓값이 0이 되는 값을 기준으로
-구간을 나누어 풀이했습니다.
-
-그래프를 통해 각 구간의 의미를
-시각적으로 확인해 보세요.
-"""
-    )
-
+    rhs = st.slider("우변 상수", -10, 10, st.session_state["rhs"], key="rhs")
+
+st.session_state.update({"a1": a1, "a2": a2, "op": op, "ineq": ineq})
+
+abs1_text = format_abs(a1, b1)
+abs2_text = format_abs(a2, b2)
+full_expr = f"{abs1_text} {op} {abs2_text} {ineq} {rhs}"
+
+st.markdown("### 📌 현재 선택된 부등식")
+st.latex(full_expr)
+
+expr1 = build_expression(a1, b1)
+expr2 = build_expression(a2, b2)
+left_expr = sp.Abs(expr1) + sp.Abs(expr2) if op == "+" else sp.Abs(expr1) - sp.Abs(expr2)
+right_expr = sp.Integer(rhs)
+
+try:
+    inequality = {
+        "<": left_expr < right_expr,
+        "<=": left_expr <= right_expr,
+        ">": left_expr > right_expr,
+        ">=": left_expr >= right_expr,
+    }[ineq]
+    solution = sp.solve_univariate_inequality(inequality, x)
+except Exception as e:
+    st.error(f"부등식 풀이 오류: {e}")
+    st.stop()
+
+st.subheader("3️⃣ 풀이 결과")
+if solution == sp.S.EmptySet:
+    st.write("🔴 해가 없습니다.")
+elif solution == sp.S.Reals:
+    st.write("🟢 모든 실수가 해입니다.")
+    st.latex(r"(-\infty, \infty)")
+else:
+    st.latex(sp.latex(solution))
+
+roots = []
+for expr in [expr1, expr2]:
+    roots += [r for r in sp.solve(sp.Eq(expr, 0), x) if r.is_real]
+roots = sorted({float(r) for r in roots})
+
+x_min = min(roots + [-10]) - 3
+x_max = max(roots + [10]) + 3
+x_min, x_max = float(x_min), float(x_max)
+xs = np.linspace(x_min, x_max, 1000)
+
+lhs_func = sp.lambdify(x, left_expr, "numpy")
+rhs_func = sp.lambdify(x, right_expr, "numpy")
+lhs_values = lhs_func(xs)
+rhs_values = rhs_func(xs)
+
+st.subheader("4️⃣ 그래프와 해석")
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.plot(xs, lhs_values, label=f"왼쪽: {sp.latex(left_expr)}", color="#1f77b4")
+ax.plot(xs, rhs_values, label=f"오른쪽: {rhs}", color="#ff7f0e", linestyle="--")
+ax.axhline(0, color="black", linewidth=0.8)
+
+for root in roots:
+    ax.axvline(root, color="gray", linestyle=":", linewidth=0.8)
+    ax.text(root, ax.get_ylim()[1] * 0.9, f"x={root:.1f}", color="gray", ha="center", va="top", fontsize=8)
+
+condition = {
+    "<": lhs_values < rhs_values,
+    "<=": lhs_values <= rhs_values,
+    ">": lhs_values > rhs_values,
+    ">=": lhs_values >= rhs_values,
+}[ineq]
+ax.fill_between(xs, lhs_values, rhs_values, where=condition, color="red", alpha=0.15)
+
+ax.set_xlabel("x")
+ax.set_ylabel("값")
+ax.set_title("절댓값을 포함한 좌변과 우변의 그래프")
+ax.legend(loc="upper left")
+ax.grid(True, linestyle="--", alpha=0.4)
+st.pyplot(fig)
+
+st.markdown("### 5️⃣ 수직선으로 해 표현하기")
+line_fig = plot_solution_line(solution, x_min, x_max)
+st.pyplot(line_fig)
+
+st.markdown(
+    "---\n"
+    "### 💡 사용 팁\n"
+    "- `a₁` 또는 `a₂`를 음수로 선택하면 `-x` 형태 내부식도 만들 수 있어요.\n"
+    "- 해가 나뉘는 구간은 절댓값 내부가 0이 되는 값을 기준으로 자동 계산됩니다.\n"
+)
